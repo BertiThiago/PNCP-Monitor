@@ -152,6 +152,7 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                     "Número PNCP": numero,
                     "Órgão": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
                     "UF": uf,
+                    "objeto": descricao_original,
                     "Valor Estimado": valor,
                     "Score": score,
                     "Status": status,
