@@ -92,8 +92,8 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
     "pagina": pagina,
     "tamanhoPagina": 50,
     "codigoModalidadeContratacao": codigo_modalidade,
-    "dataInicial": data_inicial.strftime("%Y-%m-%d"),
-    "dataFinal": data_final.strftime("%Y-%m-%d")
+    "dataInicial": data_inicial.strftime("%Y%m%d"),
+    "dataFinal": data_final.strftime("%Y%m%d")
 }
 
 
