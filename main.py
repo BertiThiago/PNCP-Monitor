@@ -96,16 +96,22 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             "dataPublicacaoFinal": data_final.strftime("%Y-%m-%d")
         }
 
-       response = requests.get(url, params=params)
+        headers = {
+            "User-Agent": "Mozilla/5.0",
+            "Accept": "application/json"
+        }
 
-       print("Status code:", response.status_code)
-       print("Resposta bruta:", response.text[:500])
+        response = requests.get(url, params=params, headers=headers)
+
+        print("Status code:", response.status_code)
+        print("Resposta bruta:", response.text[:500])
 
         if response.status_code != 200:
             break
 
         dados = response.json()
         lista = dados.get("data", [])
+
         if not lista:
             break
 
