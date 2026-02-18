@@ -89,12 +89,13 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
     while pagina <= MAX_PAGINAS:
 
         params = {
-            "pagina": pagina,
-            "tamanhoPagina": 50,
-            "codigoModalidadeContratacao": codigo_modalidade,
-            "dataPublicacaoInicial": data_inicial.strftime("%Y-%m-%d"),
-            "dataPublicacaoFinal": data_final.strftime("%Y-%m-%d")
-        }
+    "pagina": pagina,
+    "tamanhoPagina": 50,
+    "codigoModalidadeContratacao": codigo_modalidade,
+    "dataInicial": data_inicial.strftime("%Y-%m-%d"),
+    "dataFinal": data_final.strftime("%Y-%m-%d")
+}
+
 
         headers = {
             "User-Agent": "Mozilla/5.0",
