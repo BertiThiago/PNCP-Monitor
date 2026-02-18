@@ -22,7 +22,7 @@ MODALIDADES = {
     9: "RDC"
 }
 
-URL = "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao"
+url = "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao"
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
