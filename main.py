@@ -7,14 +7,19 @@ from datetime import datetime, timedelta
 from telegram import Bot
 
 # ================= CONFIG =================
-MAX_PAGINAS = 20
-DIAS_BUSCA = 7
+MAX_PAGINAS = 30
+DIAS_BUSCA = 2
 VALOR_MINIMO = 0
 UF_FILTRO = []
 
 MODALIDADES = {
+    1: "Concorrência",
+    2: "Tomada de Preços",
+    3: "Convite",
     6: "Pregão",
-    8: "Inexigibilidade"
+    7: "Dispensa",
+    8: "Inexigibilidade",
+    9: "RDC"
 }
 
 URL = "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao"
@@ -42,12 +47,21 @@ def salvar_historico(ids):
 
 def carregar_palavras():
     df = pd.read_excel("palavras_chave.xlsx")
+    df.columns = df.columns.str.strip()
+
     mapa = {}
+
     for _, row in df.iterrows():
-        empresa = row["empresa"]
-        palavra = normalizar(str(row["palavra_chave"]))
-        mapa.setdefault(empresa, []).append(palavra)
+        palavra = normalizar(str(row["palavra"]))
+        empresa = str(row["Empresa"]).strip()
+
+        if empresa not in mapa:
+            mapa[empresa] = []
+
+        mapa[empresa].append(palavra)
+
     return mapa
+
 
 def enviar_telegram(arquivo, mensagem):
     bot = Bot(token=BOT_TOKEN)
