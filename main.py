@@ -53,7 +53,7 @@ def carregar_palavras():
 
     for _, row in df.iterrows():
         palavra = normalizar(str(row["palavra"]))
-        empresa = str(row["Empresa"]).strip()
+        empresa = str(row["empresa"]).strip()
 
         if empresa not in mapa:
             mapa[empresa] = []
