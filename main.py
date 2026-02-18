@@ -7,8 +7,8 @@ from datetime import datetime, timedelta
 from telegram import Bot
 
 # ================= CONFIG =================
-MAX_PAGINAS = 30
-DIAS_BUSCA = 2
+MAX_PAGINAS = 50
+DIAS_BUSCA = 30
 VALOR_MINIMO = 0
 UF_FILTRO = []
 
