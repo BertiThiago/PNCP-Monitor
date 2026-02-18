@@ -96,7 +96,11 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             "dataPublicacaoFinal": data_final.strftime("%Y-%m-%d")
         }
 
-        response = requests.get(URL, params=params)
+       response = requests.get(url, params=params)
+
+       print("Status code:", response.status_code)
+       print("Resposta bruta:", response.text[:500])
+
         if response.status_code != 200:
             break
 
