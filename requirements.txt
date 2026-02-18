@@ -1,0 +1,4 @@
+requests
+pandas
+openpyxl
+python-telegram-bot==13.15
