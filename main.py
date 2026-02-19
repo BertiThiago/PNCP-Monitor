@@ -4,6 +4,14 @@ import json
 import unicodedata
 import os
 import re
+# Regex oficial usada pelo openpyxl para caracteres inválidos
+ILLEGAL_CHARACTERS_RE = re.compile(r'[\000-\010]|[\013-\014]|[\016-\037]')
+
+def limpar_excel(valor):
+    if isinstance(valor, str):
+        return ILLEGAL_CHARACTERS_RE.sub("", valor)
+    return valor
+
 import time
 from datetime import datetime, timedelta
 from telegram import Bot
@@ -86,11 +94,6 @@ def enviar_telegram(arquivo, mensagem):
     with open(arquivo, "rb") as f:
         bot.send_document(chat_id=CHAT_ID, document=f)
 
-def limpar_excel(valor):
-    if isinstance(valor, str):
-        return re.sub(r"[\x00-\x1F\x7F]", "", valor)
-    return valor
-
 def match_avancado(descricao, palavras):
     score = 0
     for p in palavras:
@@ -151,7 +154,6 @@ data_inicial = data_final - timedelta(days=DIAS_BUSCA)
 
 resultados = []
 resultados_por_empresa = {}
-melhor_match_por_edital = {}
 
 for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
@@ -183,9 +185,15 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
             descricao_original = item.get("objetoCompra", "")
             descricao = normalizar(descricao_original)
-            valor = item.get("valorTotalEstimado") or 0
+            valor_raw = item.get("valorTotalEstimado")
+
+            try:
+                valor = float(valor_raw)
+            except:
+                valor = 0
+
             uf = item.get("unidadeOrgao", {}).get("ufSigla", "")
-            numero = str(item.get("numeroControlePNCP"))
+            numero = str(item.get("numeroControlePNCP") or "")
 
             data_publicacao_raw = item.get("dataPublicacaoPncp", "")
             data_encerramento_raw = item.get("dataEncerramentoProposta", "")
@@ -242,7 +250,12 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 from openpyxl.styles import Font, PatternFill, Alignment
 from openpyxl.utils import get_column_letter
 
-if resultados_por_empresa:
+tem_dados = any(
+    any(item.get("numero") for item in dados)
+    for dados in resultados_por_empresa.values()
+)
+
+if tem_dados:
 
     nome_arquivo = f"relatorio_pncp_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
@@ -264,8 +277,8 @@ if resultados_por_empresa:
             df = pd.DataFrame(dados_filtrados)
 
             # Remove caracteres inválidos para Excel
-            df = df.applymap(limpar_excel)
-
+            for coluna in df.columns:
+                df[coluna] = df[coluna].apply(limpar_excel)
 
             if df.empty:
                 continue
@@ -273,7 +286,7 @@ if resultados_por_empresa:
             if "score" in df.columns:
                 df.sort_values(by="score", ascending=False, inplace=True)
 
-            sheet_name = empresa[:30]
+            sheet_name = empresa[:31]
             df.to_excel(writer, sheet_name=sheet_name, index=False)
             ws = writer.sheets[sheet_name]
 
@@ -310,8 +323,8 @@ if resultados_por_empresa:
 📅 Período analisado: últimos {DIAS_BUSCA} dias
 """
 
-    enviar_telegram(nome_arquivo, mensagem)
-
-else:
-    print("Nenhuma oportunidade encontrada.")
+    if not BOT_TOKEN or not CHAT_ID:
+        print("Telegram não configurado.")
+    else:
+        enviar_telegram(nome_arquivo, mensagem)
 
