@@ -228,8 +228,9 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                     "score": score,
                     "prioridade_score": classificar_score(score),
                     "status": status,
-                    "link_pncp": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
-                    "link_orgao": f'=HYPERLINK("{item.get("linkSistemaOrigem","")}";"Sistema Órgão")'
+                    "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
+                    "link_orgao": item.get("linkSistemaOrigem","")
+
                 })
 
         if pagina >= total_paginas:
@@ -239,30 +240,110 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
 # ================= EXPORTAÇÃO =================
 
-df = pd.DataFrame(resultados)
+from openpyxl.styles import Font, PatternFill, Alignment
+from openpyxl.utils import get_column_letter
 
-if not df.empty:
-
-    df = df.drop_duplicates(subset=["empresa","numero"])
-
-    for col in df.columns:
-        df[col] = df[col].map(limpar_excel)
-
-    df = df.sort_values(
-        ["urgencia_prazo","score"],
-        ascending=[True,False]
-    )
+if resultados_por_empresa:
 
     nome_arquivo = f"relatorio_pncp_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
     with pd.ExcelWriter(nome_arquivo, engine="openpyxl") as writer:
-        df.to_excel(writer, sheet_name="GERAL", index=False)
 
-        for empresa in df["empresa"].unique():
-            df_empresa = df[df["empresa"] == empresa]
-            df_empresa.to_excel(writer, sheet_name=str(empresa)[:31], index=False)
+        resumo = []
+
+        for empresa, dados in resultados_por_empresa.items():
+
+            df = pd.DataFrame(dados)
+
+            if df.empty:
+                continue
+
+            # Ordenação estratégica
+            if "score" in df.columns:
+                df.sort_values(by="score", ascending=False, inplace=True)
+
+            sheet_name = empresa[:30]
+            df.to_excel(writer, sheet_name=sheet_name, index=False)
+
+            ws = writer.sheets[sheet_name]
+
+            # ====== ESTILO CABEÇALHO ======
+            for col in range(1, len(df.columns) + 1):
+                cell = ws.cell(row=1, column=col)
+                cell.font = Font(bold=True, color="FFFFFF")
+                cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
+                cell.alignment = Alignment(horizontal="center", vertical="center")
+
+            # ====== AJUSTAR LARGURA AUTOMÁTICA ======
+            for i, col in enumerate(df.columns, 1):
+                max_length = max(
+                    df[col].astype(str).map(len).max(),
+                    len(col)
+                )
+                ws.column_dimensions[get_column_letter(i)].width = min(max_length + 4, 60)
+
+            # ====== CONGELAR PRIMEIRA LINHA ======
+            ws.freeze_panes = "A2"
+
+            # ====== HYPERLINK REAL (SEM CORROMPER EXCEL) ======
+            if "link_pncp" in df.columns:
+                col_link_pncp = df.columns.get_loc("link_pncp") + 1
+
+                for row in range(2, len(df) + 2):
+                    cell = ws.cell(row=row, column=col_link_pncp)
+                    url = df.iloc[row-2]["link_pncp"]
+                    if url:
+                        cell.hyperlink = url
+                        cell.style = "Hyperlink"
+
+            if "link_orgao" in df.columns:
+                col_link_orgao = df.columns.get_loc("link_orgao") + 1
+
+                for row in range(2, len(df) + 2):
+                    cell = ws.cell(row=row, column=col_link_orgao)
+                    url = df.iloc[row-2]["link_orgao"]
+                    if url:
+                        cell.hyperlink = url
+                        cell.style = "Hyperlink"
+
+            # ====== COLORIR PRIORIDADE ======
+            if "prioridade" in df.columns:
+                col_prioridade = df.columns.get_loc("prioridade") + 1
+
+                for row in range(2, len(df) + 2):
+                    valor = str(ws.cell(row=row, column=col_prioridade).value)
+
+                    if "ALTA" in valor:
+                        ws.cell(row=row, column=col_prioridade).fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
+                    elif "MEDIA" in valor:
+                        ws.cell(row=row, column=col_prioridade).fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
+                    elif "BAIXA" in valor:
+                        ws.cell(row=row, column=col_prioridade).fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
+
+            resumo.append({
+                "Empresa": empresa,
+                "Total": len(df),
+                "Alta Prioridade": len(df[df["prioridade"].str.contains("ALTA", na=False)]),
+                "Media Prioridade": len(df[df["prioridade"].str.contains("MEDIA", na=False)]),
+                "Baixa Prioridade": len(df[df["prioridade"].str.contains("BAIXA", na=False)])
+            })
+
+        # ====== ABA RESUMO EXECUTIVO ======
+        df_resumo = pd.DataFrame(resumo)
+        df_resumo.to_excel(writer, sheet_name="Resumo", index=False)
+
+        ws_resumo = writer.sheets["Resumo"]
+
+        for col in range(1, len(df_resumo.columns) + 1):
+            cell = ws_resumo.cell(row=1, column=col)
+            cell.font = Font(bold=True, color="FFFFFF")
+            cell.fill = PatternFill(start_color="305496", end_color="305496", fill_type="solid")
+            cell.alignment = Alignment(horizontal="center")
+
+        ws_resumo.freeze_panes = "A2"
 
     salvar_historico(novos_ids)
+
 
     total_geral = len(df)
     total_urgentes = len(df[df["urgencia_prazo"]=="🔴 URGENTE"])
