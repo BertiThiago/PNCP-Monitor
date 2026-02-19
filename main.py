@@ -52,8 +52,14 @@ def carregar_palavras():
     mapa = {}
 
     for _, row in df.iterrows():
+        if pd.isna(row["empresa"]) or pd.isna(row["palavra"]):
+            continue  # ignora linhas vazias
+
         palavra = normalizar(str(row["palavra"]))
-        empresa = normalizar(str(row["empresa"])).strip()
+        empresa = str(row["empresa"]).strip()
+
+        if not empresa:
+            continue  # ignora empresa vazia
 
         if empresa not in mapa:
             mapa[empresa] = []
