@@ -75,11 +75,7 @@ def carregar_palavras():
     df["palavra_norm"] = df["palavra"].apply(normalizar)
     df = df[df["palavra_norm"].str.strip() != ""]
 
-    mapa = (
-        df.groupby("empresa")["palavra_norm"]
-        .apply(list)
-        .to_dict()
-    )
+    mapa = df.groupby("empresa")["palavra_norm"].apply(list).to_dict()
 
     print(f"🏢 Empresas carregadas: {len(mapa)}")
     return mapa
@@ -155,7 +151,6 @@ data_inicial = data_final - timedelta(days=DIAS_BUSCA)
 
 resultados = []
 resultados_por_empresa = {}
-
 melhor_match_por_edital = {}
 
 for codigo_modalidade, nome_modalidade in MODALIDADES.items():
@@ -194,7 +189,6 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
             data_publicacao_raw = item.get("dataPublicacaoPncp", "")
             data_encerramento_raw = item.get("dataEncerramentoProposta", "")
-
             dias_restantes = calcular_dias_restantes(data_encerramento_raw)
 
             if UF_FILTRO and uf not in UF_FILTRO:
@@ -217,34 +211,31 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                 novos_ids.add(numero)
 
                 registro = {
-                "empresa": empresa,
-                "modalidade": nome_modalidade,
-                "numero": numero,
-                "data_publicacao": formatar_data(data_publicacao_raw),
-                "data_encerramento": formatar_data(data_encerramento_raw),
-                "dias_restantes": dias_restantes,
-                "urgencia_prazo": classificar_urgencia(dias_restantes),
-                "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
-                "uf": uf,
-                "objeto": descricao_original,
-                "valor": valor,
-                "score": score,
-                "prioridade_score": classificar_score(score),
-                "status": status,
-                "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
-                "link_orgao": item.get("linkSistemaOrigem","")
-            }
+                    "empresa": empresa,
+                    "modalidade": nome_modalidade,
+                    "numero": numero,
+                    "data_publicacao": formatar_data(data_publicacao_raw),
+                    "data_encerramento": formatar_data(data_encerramento_raw),
+                    "dias_restantes": dias_restantes,
+                    "urgencia_prazo": classificar_urgencia(dias_restantes),
+                    "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
+                    "uf": uf,
+                    "objeto": descricao_original,
+                    "valor": valor,
+                    "score": score,
+                    "prioridade_score": classificar_score(score),
+                    "status": status,
+                    "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
+                    "link_orgao": item.get("linkSistemaOrigem","")
+                }
 
-# mantém lista geral (se você ainda quiser usar depois)
-            resultados.append(registro)
+                resultados.append(registro)
+                resultados_por_empresa.setdefault(empresa, []).append(registro)
 
-# mantém separado por empresa (necessário para exportação)
-            resultados_por_empresa.setdefault(empresa, []).append(registro)
+        if pagina >= total_paginas:
+            break
 
-            if pagina >= total_paginas:
-                break
-
-            pagina += 1
+        pagina += 1
 
 # ================= EXPORTAÇÃO =================
 
@@ -258,114 +249,53 @@ if resultados_por_empresa:
     with pd.ExcelWriter(nome_arquivo, engine="openpyxl") as writer:
 
         resumo = []
+        ids_ja_usados = set()
 
-ids_ja_usados = set()
-        
         for empresa, dados in resultados_por_empresa.items():
 
-    dados_filtrados = []
+            dados_filtrados = []
 
-    for item in dados:
-        identificador = item.get("numero")
+            for item in dados:
+                identificador = item.get("numero")
+                if identificador and identificador not in ids_ja_usados:
+                    ids_ja_usados.add(identificador)
+                    dados_filtrados.append(item)
 
-        if identificador and identificador not in ids_ja_usados:
-            ids_ja_usados.add(identificador)
-            dados_filtrados.append(item)
+            df = pd.DataFrame(dados_filtrados)
 
-    df = pd.DataFrame(dados_filtrados)
+            if df.empty:
+                continue
 
-    if df.empty:
-        continue
-
-            # Ordenação estratégica
             if "score" in df.columns:
                 df.sort_values(by="score", ascending=False, inplace=True)
 
             sheet_name = empresa[:30]
             df.to_excel(writer, sheet_name=sheet_name, index=False)
-
             ws = writer.sheets[sheet_name]
 
-            # ====== ESTILO CABEÇALHO ======
             for col in range(1, len(df.columns) + 1):
                 cell = ws.cell(row=1, column=col)
                 cell.font = Font(bold=True, color="FFFFFF")
                 cell.fill = PatternFill(start_color="1F4E78", end_color="1F4E78", fill_type="solid")
                 cell.alignment = Alignment(horizontal="center", vertical="center")
 
-            # ====== AJUSTAR LARGURA AUTOMÁTICA ======
-            for i, col in enumerate(df.columns, 1):
-                max_length = max(
-                    df[col].astype(str).map(len).max(),
-                    len(col)
-                )
-                ws.column_dimensions[get_column_letter(i)].width = min(max_length + 4, 60)
-
-            # ====== CONGELAR PRIMEIRA LINHA ======
             ws.freeze_panes = "A2"
-
-            # ====== HYPERLINK REAL (SEM CORROMPER EXCEL) ======
-            if "link_pncp" in df.columns:
-                col_link_pncp = df.columns.get_loc("link_pncp") + 1
-
-                for row in range(2, len(df) + 2):
-                    cell = ws.cell(row=row, column=col_link_pncp)
-                    url = df.iloc[row-2]["link_pncp"]
-                    if url:
-                        cell.hyperlink = url
-                        cell.style = "Hyperlink"
-
-            if "link_orgao" in df.columns:
-                col_link_orgao = df.columns.get_loc("link_orgao") + 1
-
-                for row in range(2, len(df) + 2):
-                    cell = ws.cell(row=row, column=col_link_orgao)
-                    url = df.iloc[row-2]["link_orgao"]
-                    if url:
-                        cell.hyperlink = url
-                        cell.style = "Hyperlink"
-
-            # ====== COLORIR PRIORIDADE ======
-            if "prioridade" in df.columns:
-                col_prioridade = df.columns.get_loc("prioridade") + 1
-
-                for row in range(2, len(df) + 2):
-                    valor = str(ws.cell(row=row, column=col_prioridade).value)
-
-                    if "ALTA" in valor:
-                        ws.cell(row=row, column=col_prioridade).fill = PatternFill(start_color="C6EFCE", end_color="C6EFCE", fill_type="solid")
-                    elif "MEDIA" in valor:
-                        ws.cell(row=row, column=col_prioridade).fill = PatternFill(start_color="FFEB9C", end_color="FFEB9C", fill_type="solid")
-                    elif "BAIXA" in valor:
-                        ws.cell(row=row, column=col_prioridade).fill = PatternFill(start_color="F8CBAD", end_color="F8CBAD", fill_type="solid")
 
             resumo.append({
                 "Empresa": empresa,
                 "Total": len(df),
-                "Alta Prioridade": len(df[df["prioridade"].str.contains("ALTA", na=False)]),
-                "Media Prioridade": len(df[df["prioridade"].str.contains("MEDIA", na=False)]),
-                "Baixa Prioridade": len(df[df["prioridade"].str.contains("BAIXA", na=False)])
+                "Alta Prioridade": len(df[df["prioridade_score"].str.contains("ALTA", na=False)]),
+                "Media Prioridade": len(df[df["prioridade_score"].str.contains("MÉDIA", na=False)]),
+                "Baixa Prioridade": len(df[df["prioridade_score"].str.contains("BAIXA", na=False)])
             })
 
-        # ====== ABA RESUMO EXECUTIVO ======
         df_resumo = pd.DataFrame(resumo)
         df_resumo.to_excel(writer, sheet_name="Resumo", index=False)
 
-        ws_resumo = writer.sheets["Resumo"]
-
-        for col in range(1, len(df_resumo.columns) + 1):
-            cell = ws_resumo.cell(row=1, column=col)
-            cell.font = Font(bold=True, color="FFFFFF")
-            cell.fill = PatternFill(start_color="305496", end_color="305496", fill_type="solid")
-            cell.alignment = Alignment(horizontal="center")
-
-        ws_resumo.freeze_panes = "A2"
-
     salvar_historico(novos_ids)
 
-
-    total_geral = len(df)
-    total_urgentes = len(df[df["urgencia_prazo"]=="🔴 URGENTE"])
+    total_geral = len(resultados)
+    total_urgentes = len([r for r in resultados if r["urgencia_prazo"] == "🔴 URGENTE"])
 
     mensagem = f"""
 <b>📊 RADAR PNCP ENTERPRISE</b>
@@ -380,3 +310,4 @@ ids_ja_usados = set()
 
 else:
     print("Nenhuma oportunidade encontrada.")
+
