@@ -4,14 +4,22 @@ import json
 import unicodedata
 import os
 import re
+import time
 from datetime import datetime, timedelta
 from telegram import Bot
 
 # ================= CONFIG =================
-MAX_PAGINAS = 50
+
+MAX_PAGINAS = 80
 DIAS_BUSCA = 30
 VALOR_MINIMO = 0
 UF_FILTRO = []
+
+VALOR_BONUS_GRANDE = 1000000
+BONUS_GRANDE = 3
+
+TIMEOUT_REQUEST = 30
+MAX_RETRIES = 3
 
 MODALIDADES = {
     1: "Concorrência",
@@ -35,6 +43,17 @@ def normalizar(texto):
         return ""
     texto = unicodedata.normalize("NFKD", str(texto))
     return texto.encode("ASCII", "ignore").decode("ASCII").lower()
+
+def request_com_retry(url, params):
+    for tentativa in range(MAX_RETRIES):
+        try:
+            r = requests.get(url, params=params, timeout=TIMEOUT_REQUEST)
+            if r.status_code == 200:
+                return r
+        except Exception:
+            pass
+        time.sleep(2)
+    return None
 
 def carregar_historico():
     if os.path.exists("historico_ids.json"):
@@ -62,7 +81,7 @@ def carregar_palavras():
         .to_dict()
     )
 
-    print(f"Empresas carregadas: {len(mapa)}")
+    print(f"🏢 Empresas carregadas: {len(mapa)}")
     return mapa
 
 def enviar_telegram(arquivo, mensagem):
@@ -75,6 +94,28 @@ def limpar_excel(valor):
     if isinstance(valor, str):
         return re.sub(r"[\x00-\x1F\x7F]", "", valor)
     return valor
+
+def match_avancado(descricao, palavras):
+    score = 0
+    for p in palavras:
+        termos = p.split()
+
+        if all(t in descricao for t in termos):
+            score += 2
+        elif any(t in descricao for t in termos):
+            score += 1
+
+    return score
+
+def classificar(score):
+    if score >= 8:
+        return "🔥 ALTÍSSIMA"
+    elif score >= 5:
+        return "🚀 ALTA"
+    elif score >= 3:
+        return "⚡ MÉDIA"
+    else:
+        return "🟢 BAIXA"
 
 # ================= EXECUÇÃO =================
 
@@ -90,7 +131,10 @@ inicio_execucao = datetime.now()
 
 for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
+    print(f"\n🔎 Processando modalidade: {nome_modalidade}")
+
     pagina = 1
+    total_modalidade = 0
 
     while pagina <= MAX_PAGINAS:
 
@@ -102,9 +146,10 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             "tamanhoPagina": 50
         }
 
-        r = requests.get(BASE_URL, params=params)
+        r = request_com_retry(BASE_URL, params)
 
-        if r.status_code != 200:
+        if not r:
+            print("⚠ Falha na API.")
             break
 
         dados = r.json()
@@ -115,6 +160,8 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             break
 
         for item in lista:
+
+            total_modalidade += 1
 
             descricao_original = item.get("objetoCompra", "")
             descricao = normalizar(descricao_original)
@@ -130,8 +177,10 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
             for empresa, palavras in mapa_palavras.items():
 
-                matches = [p for p in palavras if p in descricao]
-                score = len(matches)
+                score = match_avancado(descricao, palavras)
+
+                if valor > VALOR_BONUS_GRANDE:
+                    score += BONUS_GRANDE
 
                 if score == 0:
                     continue
@@ -149,6 +198,7 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                     "objeto": descricao_original,
                     "valor": valor,
                     "score": score,
+                    "prioridade": classificar(score),
                     "status": status,
                     "link_pncp": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
                     "link_orgao": f'=HYPERLINK("{item.get("linkSistemaOrigem","")}";"Sistema Órgão")'
@@ -159,13 +209,19 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
         pagina += 1
 
+    print(f"📊 Registros varridos na modalidade: {total_modalidade}")
+
 # ================= EXPORTAÇÃO =================
 
 df = pd.DataFrame(resultados)
 
 if not df.empty:
 
-    df = df.applymap(limpar_excel)
+    df = df.drop_duplicates(subset=["empresa","numero"])
+
+    for col in df.columns:
+        df[col] = df[col].map(limpar_excel)
+
     df = df.sort_values(["empresa","score"], ascending=[True,False])
 
     nome_arquivo = f"relatorio_pncp_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
@@ -184,7 +240,7 @@ if not df.empty:
     total_novas = len(df[df["status"]=="🆕 NOVA"])
 
     mensagem = f"""
-<b>📊 RELATÓRIO PNCP</b>
+<b>📊 RADAR PNCP ENTERPRISE</b>
 
 🔎 Total oportunidades: <b>{total_geral}</b>
 🆕 Novas oportunidades: <b>{total_novas}</b>
@@ -194,5 +250,10 @@ if not df.empty:
 
     enviar_telegram(nome_arquivo, mensagem)
 
+    print("✅ Relatório enviado com sucesso.")
+
 else:
     print("Nenhuma oportunidade encontrada.")
+
+tempo_total = (datetime.now() - inicio_execucao).total_seconds()
+print(f"\n⏱ Tempo total execução: {round(tempo_total,2)} segundos")
