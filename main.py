@@ -77,16 +77,18 @@ def carregar_palavras():
     df = pd.read_excel("palavras_chave.xlsx")
     df.columns = df.columns.str.strip().str.lower()
 
-    if "empresa" not in df.columns or "palavra" not in df.columns:
-        raise Exception("Colunas 'empresa' e 'palavra' obrigatórias.")
+    colunas_obrigatorias = ["empresa", "palavra", "peso", "obrigatoria", "tipo"]
+
+    for c in colunas_obrigatorias:
+        if c not in df.columns:
+            raise Exception(f"Coluna obrigatória ausente: {c}")
 
     df["palavra_norm"] = df["palavra"].apply(normalizar)
     df = df[df["palavra_norm"].str.strip() != ""]
 
-    mapa = df.groupby("empresa")["palavra_norm"].apply(list).to_dict()
+    print(f"🏢 Empresas carregadas: {df['empresa'].nunique()}")
 
-    print(f"🏢 Empresas carregadas: {len(mapa)}")
-    return mapa
+    return df
 
 def enviar_telegram(arquivo, mensagem):
     bot = Bot(token=BOT_TOKEN)
@@ -94,15 +96,39 @@ def enviar_telegram(arquivo, mensagem):
     with open(arquivo, "rb") as f:
         bot.send_document(chat_id=CHAT_ID, document=f)
 
-def match_avancado(descricao, palavras):
+def match_estrategico(descricao, df_empresa):
+
     score = 0
-    for p in palavras:
-        termos = p.split()
+    encontrou_obrigatoria = False
+    tecnicas_encontradas = 0
+
+    for _, row in df_empresa.iterrows():
+
+        palavra = row["palavra_norm"]
+        peso = int(row["peso"])
+        obrigatoria = str(row["obrigatoria"]).lower() == "sim"
+        tipo = str(row["tipo"]).lower()
+
+        termos = palavra.split()
+
         if all(t in descricao for t in termos):
-            score += 2
-        elif any(t in descricao for t in termos):
-            score += 1
-    return score
+
+            score += peso
+
+            if obrigatoria:
+                encontrou_obrigatoria = True
+
+            if tipo == "tecnica":
+                tecnicas_encontradas += 1
+
+    aprovado = (
+        encontrou_obrigatoria
+        or score >= 6
+        or tecnicas_encontradas >= 2
+    )
+
+    return aprovado, score
+
 
 def classificar_score(score):
     if score >= 8:
@@ -205,14 +231,31 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             if valor < VALOR_MINIMO:
                 continue
 
-            for empresa, palavras in mapa_palavras.items():
+            for empresa in mapa_palavras["empresa"].unique():
 
-                score = match_avancado(descricao, palavras)
+                df_empresa = mapa_palavras[mapa_palavras["empresa"] == empresa]
+            
+                aprovado, score = match_estrategico(descricao, df_empresa)
+            
+                if not aprovado:
+                    continue
 
                 if valor > VALOR_BONUS_GRANDE:
                     score += BONUS_GRANDE
 
                 if score == 0:
+                    continue
+
+                palavras_genericas_proibidas = [
+                    "evento cultural",
+                    "apresentacao artistica",
+                    "festa",
+                    "carnaval",
+                    "show musical",
+                    "orquestra"
+                ]
+
+                if any(p in descricao for p in palavras_genericas_proibidas):
                     continue
 
                 status = "🆕 NOVA" if numero not in ids_vistos else "✔ JÁ ANALISADA"
