@@ -242,9 +242,9 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             resultados_por_empresa.setdefault(empresa, []).append(registro)
 
             if pagina >= total_paginas:
-            break
+                break
 
-        pagina += 1
+            pagina += 1
 
 # ================= EXPORTAÇÃO =================
 
