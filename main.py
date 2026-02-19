@@ -11,7 +11,7 @@ from telegram import Bot
 # ================= CONFIG =================
 
 MAX_PAGINAS = 80
-DIAS_BUSCA = 2
+DIAS_BUSCA = 30
 VALOR_MINIMO = 0
 UF_FILTRO = []
 
@@ -99,15 +99,13 @@ def match_avancado(descricao, palavras):
     score = 0
     for p in palavras:
         termos = p.split()
-
         if all(t in descricao for t in termos):
             score += 2
         elif any(t in descricao for t in termos):
             score += 1
-
     return score
 
-def classificar(score):
+def classificar_score(score):
     if score >= 8:
         return "🔥 ALTÍSSIMA"
     elif score >= 5:
@@ -116,6 +114,35 @@ def classificar(score):
         return "⚡ MÉDIA"
     else:
         return "🟢 BAIXA"
+
+def formatar_data(data_str):
+    if not data_str:
+        return ""
+    try:
+        return datetime.fromisoformat(data_str.replace("Z","")).strftime("%d/%m/%Y %H:%M")
+    except:
+        return data_str
+
+def calcular_dias_restantes(data_enc):
+    if not data_enc:
+        return None
+    try:
+        data_obj = datetime.fromisoformat(data_enc.replace("Z",""))
+        return (data_obj - datetime.now()).days
+    except:
+        return None
+
+def classificar_urgencia(dias):
+    if dias is None:
+        return ""
+    if dias < 0:
+        return "⚫ ENCERRADA"
+    elif dias <= 5:
+        return "🔴 URGENTE"
+    elif dias <= 10:
+        return "🟠 ATENÇÃO"
+    else:
+        return "🟢 NO PRAZO"
 
 # ================= EXECUÇÃO =================
 
@@ -127,14 +154,11 @@ data_final = datetime.now()
 data_inicial = data_final - timedelta(days=DIAS_BUSCA)
 
 resultados = []
-inicio_execucao = datetime.now()
 
 for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
     print(f"\n🔎 Processando modalidade: {nome_modalidade}")
-
     pagina = 1
-    total_modalidade = 0
 
     while pagina <= MAX_PAGINAS:
 
@@ -147,9 +171,7 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
         }
 
         r = request_com_retry(BASE_URL, params)
-
         if not r:
-            print("⚠ Falha na API.")
             break
 
         dados = r.json()
@@ -161,13 +183,16 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
         for item in lista:
 
-            total_modalidade += 1
-
             descricao_original = item.get("objetoCompra", "")
             descricao = normalizar(descricao_original)
             valor = item.get("valorTotalEstimado") or 0
             uf = item.get("unidadeOrgao", {}).get("ufSigla", "")
             numero = str(item.get("numeroControlePNCP"))
+
+            data_publicacao_raw = item.get("dataPublicacaoPncp", "")
+            data_encerramento_raw = item.get("dataEncerramentoProposta", "")
+
+            dias_restantes = calcular_dias_restantes(data_encerramento_raw)
 
             if UF_FILTRO and uf not in UF_FILTRO:
                 continue
@@ -186,19 +211,22 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                     continue
 
                 status = "🆕 NOVA" if numero not in ids_vistos else "✔ JÁ ANALISADA"
-
                 novos_ids.add(numero)
 
                 resultados.append({
                     "empresa": empresa,
                     "modalidade": nome_modalidade,
                     "numero": numero,
+                    "data_publicacao": formatar_data(data_publicacao_raw),
+                    "data_encerramento": formatar_data(data_encerramento_raw),
+                    "dias_restantes": dias_restantes,
+                    "urgencia_prazo": classificar_urgencia(dias_restantes),
                     "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
                     "uf": uf,
                     "objeto": descricao_original,
                     "valor": valor,
                     "score": score,
-                    "prioridade": classificar(score),
+                    "prioridade_score": classificar_score(score),
                     "status": status,
                     "link_pncp": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
                     "link_orgao": f'=HYPERLINK("{item.get("linkSistemaOrigem","")}";"Sistema Órgão")'
@@ -208,8 +236,6 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             break
 
         pagina += 1
-
-    print(f"📊 Registros varridos na modalidade: {total_modalidade}")
 
 # ================= EXPORTAÇÃO =================
 
@@ -222,12 +248,14 @@ if not df.empty:
     for col in df.columns:
         df[col] = df[col].map(limpar_excel)
 
-    df = df.sort_values(["empresa","score"], ascending=[True,False])
+    df = df.sort_values(
+        ["urgencia_prazo","score"],
+        ascending=[True,False]
+    )
 
     nome_arquivo = f"relatorio_pncp_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
     with pd.ExcelWriter(nome_arquivo, engine="openpyxl") as writer:
-
         df.to_excel(writer, sheet_name="GERAL", index=False)
 
         for empresa in df["empresa"].unique():
@@ -237,23 +265,18 @@ if not df.empty:
     salvar_historico(novos_ids)
 
     total_geral = len(df)
-    total_novas = len(df[df["status"]=="🆕 NOVA"])
+    total_urgentes = len(df[df["urgencia_prazo"]=="🔴 URGENTE"])
 
     mensagem = f"""
 <b>📊 RADAR PNCP ENTERPRISE</b>
 
 🔎 Total oportunidades: <b>{total_geral}</b>
-🆕 Novas oportunidades: <b>{total_novas}</b>
+🔴 Urgentes (≤5 dias): <b>{total_urgentes}</b>
 
 📅 Período analisado: últimos {DIAS_BUSCA} dias
 """
 
     enviar_telegram(nome_arquivo, mensagem)
 
-    print("✅ Relatório enviado com sucesso.")
-
 else:
     print("Nenhuma oportunidade encontrada.")
-
-tempo_total = (datetime.now() - inicio_execucao).total_seconds()
-print(f"\n⏱ Tempo total execução: {round(tempo_total,2)} segundos")
