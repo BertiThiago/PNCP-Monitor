@@ -162,6 +162,8 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
         pagina += 1
 
+df = pd.DataFrame()  # 👈 garante que sempre exista
+
 if resultados_por_empresa:
 
     nome_arquivo = f"relatorio_pncp_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
