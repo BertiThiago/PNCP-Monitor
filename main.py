@@ -11,7 +11,7 @@ from telegram import Bot
 # ================= CONFIG =================
 
 MAX_PAGINAS = 80
-DIAS_BUSCA = 30
+DIAS_BUSCA = 2
 VALOR_MINIMO = 0
 UF_FILTRO = []
 
