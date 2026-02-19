@@ -124,6 +124,8 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
             valor = item.get("valorTotalEstimado") or 0
             uf = item.get("unidadeOrgao", {}).get("ufSigla", "")
 
+            pagina += 1
+
             if UF_FILTRO and uf not in UF_FILTRO:
                 continue
 
@@ -163,7 +165,7 @@ resultados_por_empresa.setdefault(empresa, []).append({
 })
 
 
-        pagina += 1
+
 
 df = pd.DataFrame()  # 👈 garante que sempre exista
 
