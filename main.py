@@ -263,6 +263,10 @@ if resultados_por_empresa:
 
             df = pd.DataFrame(dados_filtrados)
 
+            # Remove caracteres inválidos para Excel
+            df = df.applymap(limpar_excel)
+
+
             if df.empty:
                 continue
 
