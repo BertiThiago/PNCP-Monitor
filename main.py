@@ -217,31 +217,31 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                 novos_ids.add(numero)
 
                 registro = {
-    "empresa": empresa,
-    "modalidade": nome_modalidade,
-    "numero": numero,
-    "data_publicacao": formatar_data(data_publicacao_raw),
-    "data_encerramento": formatar_data(data_encerramento_raw),
-    "dias_restantes": dias_restantes,
-    "urgencia_prazo": classificar_urgencia(dias_restantes),
-    "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
-    "uf": uf,
-    "objeto": descricao_original,
-    "valor": valor,
-    "score": score,
-    "prioridade_score": classificar_score(score),
-    "status": status,
-    "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
-    "link_orgao": item.get("linkSistemaOrigem","")
-}
+                "empresa": empresa,
+                "modalidade": nome_modalidade,
+                "numero": numero,
+                "data_publicacao": formatar_data(data_publicacao_raw),
+                "data_encerramento": formatar_data(data_encerramento_raw),
+                "dias_restantes": dias_restantes,
+                "urgencia_prazo": classificar_urgencia(dias_restantes),
+                "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
+                "uf": uf,
+                "objeto": descricao_original,
+                "valor": valor,
+                "score": score,
+                "prioridade_score": classificar_score(score),
+                "status": status,
+                "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
+                "link_orgao": item.get("linkSistemaOrigem","")
+                }
 
 # mantém lista geral (se você ainda quiser usar depois)
-resultados.append(registro)
+                 resultados.append(registro)
 
 # mantém separado por empresa (necessário para exportação)
-resultados_por_empresa.setdefault(empresa, []).append(registro)
+                 resultados_por_empresa.setdefault(empresa, []).append(registro)
 
-        if pagina >= total_paginas:
+            if pagina >= total_paginas:
             break
 
         pagina += 1
