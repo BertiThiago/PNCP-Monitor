@@ -154,6 +154,9 @@ data_final = datetime.now()
 data_inicial = data_final - timedelta(days=DIAS_BUSCA)
 
 resultados = []
+resultados_por_empresa = {}
+
+melhor_match_por_edital = {}
 
 for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
@@ -213,25 +216,30 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                 status = "🆕 NOVA" if numero not in ids_vistos else "✔ JÁ ANALISADA"
                 novos_ids.add(numero)
 
-                resultados.append({
-                    "empresa": empresa,
-                    "modalidade": nome_modalidade,
-                    "numero": numero,
-                    "data_publicacao": formatar_data(data_publicacao_raw),
-                    "data_encerramento": formatar_data(data_encerramento_raw),
-                    "dias_restantes": dias_restantes,
-                    "urgencia_prazo": classificar_urgencia(dias_restantes),
-                    "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
-                    "uf": uf,
-                    "objeto": descricao_original,
-                    "valor": valor,
-                    "score": score,
-                    "prioridade_score": classificar_score(score),
-                    "status": status,
-                    "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
-                    "link_orgao": item.get("linkSistemaOrigem","")
+                registro = {
+    "empresa": empresa,
+    "modalidade": nome_modalidade,
+    "numero": numero,
+    "data_publicacao": formatar_data(data_publicacao_raw),
+    "data_encerramento": formatar_data(data_encerramento_raw),
+    "dias_restantes": dias_restantes,
+    "urgencia_prazo": classificar_urgencia(dias_restantes),
+    "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
+    "uf": uf,
+    "objeto": descricao_original,
+    "valor": valor,
+    "score": score,
+    "prioridade_score": classificar_score(score),
+    "status": status,
+    "link_pncp": f"https://pncp.gov.br/app/editais/{numero}",
+    "link_orgao": item.get("linkSistemaOrigem","")
+}
 
-                })
+# mantém lista geral (se você ainda quiser usar depois)
+resultados.append(registro)
+
+# mantém separado por empresa (necessário para exportação)
+resultados_por_empresa.setdefault(empresa, []).append(registro)
 
         if pagina >= total_paginas:
             break
@@ -251,12 +259,23 @@ if resultados_por_empresa:
 
         resumo = []
 
+ids_ja_usados = set()
+        
         for empresa, dados in resultados_por_empresa.items():
 
-            df = pd.DataFrame(dados)
+    dados_filtrados = []
 
-            if df.empty:
-                continue
+    for item in dados:
+        identificador = item.get("numero")
+
+        if identificador and identificador not in ids_ja_usados:
+            ids_ja_usados.add(identificador)
+            dados_filtrados.append(item)
+
+    df = pd.DataFrame(dados_filtrados)
+
+    if df.empty:
+        continue
 
             # Ordenação estratégica
             if "score" in df.columns:
