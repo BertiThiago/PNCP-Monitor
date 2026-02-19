@@ -3,11 +3,12 @@ import pandas as pd
 import json
 import unicodedata
 import os
+import re
 from datetime import datetime, timedelta
 from telegram import Bot
 
 # ================= CONFIG =================
-MAX_PAGINAS = 100
+MAX_PAGINAS = 50
 DIAS_BUSCA = 30
 VALOR_MINIMO = 0
 UF_FILTRO = []
@@ -22,7 +23,7 @@ MODALIDADES = {
     9: "RDC"
 }
 
-url = "https://pncp.gov.br/api/consulta/v1/contratacoes/publicacao"
+BASE_URL = "https://pncp.gov.br/pncp-consulta/v1/contratacoes/publicacao"
 
 BOT_TOKEN = os.getenv("TELEGRAM_TOKEN")
 CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
@@ -30,10 +31,10 @@ CHAT_ID = os.getenv("TELEGRAM_CHAT_ID")
 # ================= FUNÇÕES =================
 
 def normalizar(texto):
-    texto = texto.lower()
-    texto = unicodedata.normalize('NFD', texto)
-    texto = texto.encode('ascii', 'ignore').decode('utf-8')
-    return texto
+    if pd.isna(texto):
+        return ""
+    texto = unicodedata.normalize("NFKD", str(texto))
+    return texto.encode("ASCII", "ignore").decode("ASCII").lower()
 
 def carregar_historico():
     if os.path.exists("historico_ids.json"):
@@ -47,27 +48,22 @@ def salvar_historico(ids):
 
 def carregar_palavras():
     df = pd.read_excel("palavras_chave.xlsx")
-    df.columns = df.columns.str.strip()
+    df.columns = df.columns.str.strip().str.lower()
 
-    mapa = {}
+    if "empresa" not in df.columns or "palavra" not in df.columns:
+        raise Exception("Colunas 'empresa' e 'palavra' obrigatórias.")
 
-    for _, row in df.iterrows():
-        if pd.isna(row["empresa"]) or pd.isna(row["palavra"]):
-            continue  # ignora linhas vazias
+    df["palavra_norm"] = df["palavra"].apply(normalizar)
+    df = df[df["palavra_norm"].str.strip() != ""]
 
-        palavra = normalizar(str(row["palavra"]))
-        empresa = str(row["empresa"]).strip()
+    mapa = (
+        df.groupby("empresa")["palavra_norm"]
+        .apply(list)
+        .to_dict()
+    )
 
-        if not empresa:
-            continue  # ignora empresa vazia
-
-        if empresa not in mapa:
-            mapa[empresa] = []
-
-        mapa[empresa].append(palavra)
-
+    print(f"Empresas carregadas: {len(mapa)}")
     return mapa
-
 
 def enviar_telegram(arquivo, mensagem):
     bot = Bot(token=BOT_TOKEN)
@@ -75,18 +71,22 @@ def enviar_telegram(arquivo, mensagem):
     with open(arquivo, "rb") as f:
         bot.send_document(chat_id=CHAT_ID, document=f)
 
+def limpar_excel(valor):
+    if isinstance(valor, str):
+        return re.sub(r"[\x00-\x1F\x7F]", "", valor)
+    return valor
+
 # ================= EXECUÇÃO =================
 
 mapa_palavras = carregar_palavras()
 ids_vistos = carregar_historico()
 novos_ids = set(ids_vistos)
 
-data_final = datetime.today()
+data_final = datetime.now()
 data_inicial = data_final - timedelta(days=DIAS_BUSCA)
 
-resultados_por_empresa = {}
-total_novas = 0
-total_geral = 0
+resultados = []
+inicio_execucao = datetime.now()
 
 for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
@@ -95,42 +95,32 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
     while pagina <= MAX_PAGINAS:
 
         params = {
-    "pagina": pagina,
-    "tamanhoPagina": 50,
-    "codigoModalidadeContratacao": codigo_modalidade,
-    "dataInicial": data_inicial.strftime("%Y%m%d"),
-    "dataFinal": data_final.strftime("%Y%m%d")
-}
-
-
-        headers = {
-            "User-Agent": "Mozilla/5.0",
-            "Accept": "application/json"
+            "dataInicial": data_inicial.strftime("%Y%m%dT00:00:00"),
+            "dataFinal": data_final.strftime("%Y%m%dT23:59:59"),
+            "codigoModalidadeContratacao": codigo_modalidade,
+            "pagina": pagina,
+            "tamanhoPagina": 50
         }
 
-        response = requests.get(url, params=params, headers=headers)
+        r = requests.get(BASE_URL, params=params)
 
-        print("Status code:", response.status_code)
-        print("Resposta bruta:", response.text[:500])
-
-        if response.status_code != 200:
+        if r.status_code != 200:
             break
 
-        dados = response.json()
+        dados = r.json()
         lista = dados.get("data", [])
+        total_paginas = dados.get("totalPaginas", 1)
 
         if not lista:
             break
 
         for item in lista:
 
-            numero = str(item.get("numeroControlePNCP"))
             descricao_original = item.get("objetoCompra", "")
             descricao = normalizar(descricao_original)
             valor = item.get("valorTotalEstimado") or 0
             uf = item.get("unidadeOrgao", {}).get("ufSigla", "")
-
-            pagina += 1
+            numero = str(item.get("numeroControlePNCP"))
 
             if UF_FILTRO and uf not in UF_FILTRO:
                 continue
@@ -146,57 +136,52 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
                 if score == 0:
                     continue
 
-                total_geral += 1
-
                 status = "🆕 NOVA" if numero not in ids_vistos else "✔ JÁ ANALISADA"
-
-                if numero not in ids_vistos:
-                    total_novas += 1
 
                 novos_ids.add(numero)
 
-link_origem = item.get("linkSistemaOrigem", "")
+                resultados.append({
+                    "empresa": empresa,
+                    "modalidade": nome_modalidade,
+                    "numero": numero,
+                    "orgao": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
+                    "uf": uf,
+                    "objeto": descricao_original,
+                    "valor": valor,
+                    "score": score,
+                    "status": status,
+                    "link_pncp": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
+                    "link_orgao": f'=HYPERLINK("{item.get("linkSistemaOrigem","")}";"Sistema Órgão")'
+                })
 
-resultados_por_empresa.setdefault(empresa, []).append({
-    "Modalidade": nome_modalidade,
-    "Número PNCP": numero,
-    "Órgão": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
-    "UF": uf,
-    "objeto": descricao_original,
-    "Valor Estimado": valor,
-    "Score": score,
-    "Status": status,
-    "Link PNCP": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
-    "Link Órgão": f'=HYPERLINK("{link_origem}";"Sistema Órgão")'
-})
+        if pagina >= total_paginas:
+            break
 
+        pagina += 1
 
-df = pd.DataFrame()  # 👈 garante que sempre exista
+# ================= EXPORTAÇÃO =================
 
-if resultados_por_empresa:
+df = pd.DataFrame(resultados)
+
+if not df.empty:
+
+    df = df.applymap(limpar_excel)
+    df = df.sort_values(["empresa","score"], ascending=[True,False])
 
     nome_arquivo = f"relatorio_pncp_{datetime.now().strftime('%Y%m%d_%H%M')}.xlsx"
 
     with pd.ExcelWriter(nome_arquivo, engine="openpyxl") as writer:
 
-        resumo = []
+        df.to_excel(writer, sheet_name="GERAL", index=False)
 
-        for empresa, dados in resultados_por_empresa.items():
-            df = pd.DataFrame(dados)
-            df.sort_values(by="Score", ascending=False, inplace=True)
-            nome_aba = empresa.replace("/", "-").replace("\\", "-")[:30]
-            df.to_excel(writer, sheet_name=nome_aba, index=False)
-
-            resumo.append({
-                "Empresa": empresa,
-                "Total": len(df),
-                "Novas": len(df[df["Status"] == "🆕 NOVA"])
-            })
-
-        df_resumo = pd.DataFrame(resumo)
-        df_resumo.to_excel(writer, sheet_name="Resumo", index=False)
+        for empresa in df["empresa"].unique():
+            df_empresa = df[df["empresa"] == empresa]
+            df_empresa.to_excel(writer, sheet_name=str(empresa)[:31], index=False)
 
     salvar_historico(novos_ids)
+
+    total_geral = len(df)
+    total_novas = len(df[df["status"]=="🆕 NOVA"])
 
     mensagem = f"""
 <b>📊 RELATÓRIO PNCP</b>
@@ -211,4 +196,3 @@ if resultados_por_empresa:
 
 else:
     print("Nenhuma oportunidade encontrada.")
-
