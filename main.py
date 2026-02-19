@@ -147,18 +147,21 @@ for codigo_modalidade, nome_modalidade in MODALIDADES.items():
 
                 novos_ids.add(numero)
 
-                resultados_por_empresa.setdefault(empresa, []).append({
-                    "Modalidade": nome_modalidade,
-                    "Número PNCP": numero,
-                    "Órgão": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
-                    "UF": uf,
-                    "objeto": descricao_original,
-                    "Valor Estimado": valor,
-                    "Score": score,
-                    "Status": status,
-                    "Link PNCP": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
-                    "Link Órgão": f'=HYPERLINK("{item.get("linkSistemaOrigem","")}";"Sistema Órgão")'
-                })
+link_origem = item.get("linkSistemaOrigem", "")
+
+resultados_por_empresa.setdefault(empresa, []).append({
+    "Modalidade": nome_modalidade,
+    "Número PNCP": numero,
+    "Órgão": item.get("orgaoEntidade", {}).get("razaoSocial", ""),
+    "UF": uf,
+    "objeto": descricao_original,
+    "Valor Estimado": valor,
+    "Score": score,
+    "Status": status,
+    "Link PNCP": f'=HYPERLINK("https://pncp.gov.br/app/editais/{numero}";"Abrir PNCP")',
+    "Link Órgão": f'=HYPERLINK("{link_origem}";"Sistema Órgão")'
+})
+
 
         pagina += 1
 
