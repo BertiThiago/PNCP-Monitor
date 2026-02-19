@@ -53,7 +53,7 @@ def carregar_palavras():
 
     for _, row in df.iterrows():
         palavra = normalizar(str(row["palavra"]))
-        empresa = str(row["empresa"]).strip()
+        empresa = normalizar(str(row["empresa"])).strip()
 
         if empresa not in mapa:
             mapa[empresa] = []
@@ -165,8 +165,6 @@ resultados_por_empresa.setdefault(empresa, []).append({
 })
 
 
-
-
 df = pd.DataFrame()  # 👈 garante que sempre exista
 
 if resultados_por_empresa:
@@ -180,7 +178,8 @@ if resultados_por_empresa:
         for empresa, dados in resultados_por_empresa.items():
             df = pd.DataFrame(dados)
             df.sort_values(by="Score", ascending=False, inplace=True)
-            df.to_excel(writer, sheet_name=empresa[:30], index=False)
+            nome_aba = empresa.replace("/", "-").replace("\\", "-")[:30]
+            df.to_excel(writer, sheet_name=nome_aba, index=False)
 
             resumo.append({
                 "Empresa": empresa,
