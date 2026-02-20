@@ -97,38 +97,63 @@ def enviar_telegram(arquivo, mensagem):
         bot.send_document(chat_id=CHAT_ID, document=f)
 
 def match_estrategico(descricao, df_empresa):
+    """
+    Aplica score estratégico com:
+    - Peso por palavra
+    - Nível (Primário, Secundário, Negativo)
+    - Tratamento de NaN
+    """
 
-    score = 0
-    encontrou_obrigatoria = False
-    tecnicas_encontradas = 0
+    if not isinstance(descricao, str):
+        return False, 0
+
+    descricao = descricao.lower()
+    score_total = 0
+    score_primario = 0
+    encontrou_primario = False
 
     for _, row in df_empresa.iterrows():
 
-        palavra = row["palavra_norm"]
-        peso = int(row["peso"])
-        obrigatoria = str(row["obrigatoria"]).lower() == "sim"
-        tipo = str(row["tipo"]).lower()
+        palavra = str(row.get("palavra", "")).strip().lower()
+        nivel = str(row.get("nivel", "")).strip().lower()
 
-        termos = palavra.split()
+        # ✅ Tratamento robusto de peso
+        peso_raw = row.get("peso", 0)
 
-        if all(t in descricao for t in termos):
+        if pd.isna(peso_raw):
+            peso = 1
+        else:
+            try:
+                peso = int(peso_raw)
+            except:
+                peso = 1
 
-            score += peso
+        if not palavra:
+            continue
 
-            if obrigatoria:
-                encontrou_obrigatoria = True
+        if palavra in descricao:
 
-            if tipo == "tecnica":
-                tecnicas_encontradas += 1
+            # 🔴 PALAVRA NEGATIVA
+            if nivel == "negativo":
+                score_total -= peso
 
-    aprovado = (
-        encontrou_obrigatoria
-        or score >= 6
-        or tecnicas_encontradas >= 2
-    )
+            # 🟡 PALAVRA SECUNDÁRIA
+            elif nivel == "secundário" or nivel == "secundario":
+                score_total += peso
 
-    return aprovado, score
+            # 🟢 PALAVRA PRIMÁRIA
+            else:
+                score_total += peso
+                score_primario += peso
+                encontrou_primario = True
 
+    # 🎯 REGRA DE APROVAÇÃO
+    aprovado = False
+
+    if encontrou_primario and score_total >= 5:
+        aprovado = True
+
+    return aprovado, score_total
 
 def classificar_score(score):
     if score >= 8:
